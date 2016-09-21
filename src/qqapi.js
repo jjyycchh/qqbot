@@ -6,7 +6,7 @@
  */
 
 (function() {
-  var all_cookies, change_status, client, cookies, fs, get_buddy_list, get_discuss_list, get_discuss_member, get_friend_uin2, get_group_list, get_group_member, jsons, log, long_poll, msg_id, send_msg_2buddy, send_msg_2discuss, send_msg_2group, send_msg_2sess;
+  var all_cookies, change_status, client, cookies, fs, get_self_info, get_buddy_list, get_discuss_list, get_discuss_member, get_friend_uin2, get_group_list, get_group_member, jsons, log, long_poll, msg_id, send_msg_2buddy, send_msg_2discuss, send_msg_2group, send_msg_2sess;
 
   all_cookies = [];
 
@@ -75,6 +75,17 @@
       V += N[U[T] & 15]
     }
     return V;
+  };
+
+  get_self_info = function(auth_opts, callback) {
+    var t;
+    t = new Date().getTime();
+    return client.get("http://s.web2.qq.com/api/get_self_info2",
+        {
+          t: t
+        }, function(ret, e) {
+          return callback(ret, e);
+        });
   };
 
   get_buddy_list = function(auth_opts, callback) {
@@ -313,6 +324,7 @@
   module.exports = {
     cookies: cookies,
     long_poll: long_poll,
+    get_self_info: get_self_info,
     get_buddy_list: get_buddy_list,
     get_friend_uin2: get_friend_uin2,
     send_msg_2buddy: send_msg_2buddy,

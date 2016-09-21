@@ -49,21 +49,28 @@
           return run();
         }
       });
-      return bot.update_all_members(function(ret) {
-        if(ret) {
-          log.info("Entering runloop, Enjoy!");
-          return bot.runloop();
-        } else {
-          log.error("获取信息失败，再次尝试");
-          return bot.update_all_members(function(ret) {
+      return bot.get_self_info(function (info){
+        if (info.nick){
+          bot.update_all_members(function(ret) {
             if(ret) {
               log.info("Entering runloop, Enjoy!");
               return bot.runloop();
             } else {
-              log.error("获取信息失败，请重新运行");
-              process.exit(1);
+              log.error("获取信息失败，再次尝试");
+              return bot.update_all_members(function(ret) {
+                if(ret) {
+                  log.info("Entering runloop, Enjoy!");
+                  return bot.runloop();
+                } else {
+                  log.error("获取信息失败，请重新运行");
+                  process.exit(1);
+                }
+              });
             }
           });
+        }else{
+          log.error("获取个人信息失败，请重新运行");
+          process.exit(1);
         }
       });
     });

@@ -16,6 +16,8 @@ plugins:
     - help
     - debug
     - apiserver
+    - hitokoto
+    - contact
 
 # apiserver plugin configration
 api_port:  3200

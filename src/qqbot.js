@@ -25,6 +25,7 @@
       this.cookies = cookies;
       this.auth = auth1;
       this.config = config;
+      this.self_info = {};
       this.buddy_info = {};
       this.group_info = {};
       this.groupmember_info = {};
@@ -37,6 +38,17 @@
       this.dispatcher = new Dispatcher(this.config.plugins, this);
       this.started = true;
     }
+
+    QQBot.prototype.get_self_info = function(callback) {
+      var self = this;
+      this.api.get_self_info(this.auth, function(ret, e) {
+        if (typeof ret.result != "undefined"){
+          self.self_info = ret.result;
+        }
+        console.log(JSON.stringify(ret));
+        if (callback) return callback(self.self_info);
+      });
+    };
 
     QQBot.prototype.save_group_member = function(group, info) {
       return this.groupmember_info[group.gid] = info;
@@ -65,6 +77,19 @@
       info = this.groupmember_info[gid];
       users = info.minfo.filter(function(item) {
         return item.uin === uin;
+      });
+      return users.pop();
+    };
+    
+    QQBot.prototype.get_user_ex_ingroup = function(options, gid) {
+      var info, users;
+      info = this.groupmember_info[gid];
+      users = info.minfo.filter(function(item) {
+        var key, value;
+        for (key in options) {
+          value = options[key];
+          return item[key] === value;
+        }
       });
       return users.pop();
     };
@@ -110,6 +135,21 @@
           }
           return results;
         })();
+        return users.pop();
+      } catch (undefined) {}
+    };
+
+    QQBot.prototype.get_user_ex_in_dgroup = function(options, did) {
+      var info, users;
+      try {
+        info = this.dgroupmember_info[did];
+        users = info.mem_info.filter(function(item) {
+          var key, value;
+          for (key in options) {
+            value = options[key];
+            return item[key] === value;
+          }
+        });
         return users.pop();
       } catch (undefined) {}
     };
@@ -215,6 +255,7 @@
         return function(ret, e) {
           if (ret.retcode === 0) {
             _this.dgroupmember_info[did] = ret.result;
+            log.debug(JSON.stringify(ret.result));
           }
           if (callback) {
             return callback(ret.retcode === 0, e);
@@ -229,7 +270,7 @@
       groups = this.group_info.gnamelist || [];
       all = groups.length;
       if (all === 0) {
-        callback(true, 0, 0);
+        if (callback) callback(true, 0, 0);
       }
       results = [];
       for (i = 0, len = groups.length; i < len; i++) {
@@ -242,7 +283,39 @@
             log.debug(error);
           }
           if (finished === all) {
-            return callback(successed === all, finished, successed);
+            if (callback)
+              return callback(successed === all, finished, successed);
+            else
+              return true;
+          }
+        }));
+      }
+      return results;
+    };
+
+    QQBot.prototype.update_all_dgroup_member = function(callback) {
+      var all, finished, dgroup, dgroups, i, len, results, successed;
+      finished = successed = 0;
+      dgroups = this.dgroup_info.dnamelist || [];
+      all = dgroups.length;
+      if (all === 0) {
+        if (callback) callback(true, 0, 0);
+      }
+      results = [];
+      for (i = 0, len = dgroups.length; i < len; i++) {
+        dgroup = dgroups[i];
+        results.push(this.update_dgroup_member(dgroup, function(ret, error) {
+          finished += 1;
+          successed += ret;
+          log.debug("dgroupmember all" + all + " fin" + finished + " succ" + successed);
+          if (error) {
+            log.debug(error);
+          }
+          if (finished === all) {
+            if (callback)
+              return callback(successed === all, finished, successed);
+            else
+              return true;
           }
         }));
       }
@@ -254,7 +327,9 @@
       actions = {
         buddy: [0, 0],
         group: [0, 0],
-        groupmember: [0, 0]
+        dgroup: [0, 0],
+        groupmember: [0, 0],
+        dgroupmember: [0, 0]
       };
       check = function() {
         var all, finished, i, item, key, len, stats, successed, value;
@@ -276,7 +351,8 @@
         }
         log.debug("updating all: all " + all + " finished " + finished + " success " + successed);
         if (finished === all) {
-          return callback(successed === all);
+          if (callback)
+            return callback(successed === all);
         }
       };
 
@@ -300,7 +376,20 @@
         };
       })(this));
 
-      return this.update_dgroup_list();
+      return this.update_dgroup_list((function(_this) {
+        return function(ret) {
+          actions.dgroup = [1, ret];
+          if (!ret) {
+            callback(false);
+            return;
+          }
+          log.info('fetching all dgroupmember...');
+          return _this.update_all_dgroup_member(function(ret, all, successed) {
+            actions.dgroupmember = [1, ret];
+            return check();
+          });
+        };
+      })(this));
     };
 
     QQBot.prototype.get_account_info_general = function(table, uin, type, callback) {
@@ -546,14 +635,54 @@
     };
 
     QQBot.prototype._on_message = function(event, msg_type) {
-      var msg, replied, reply, value;
+      var msg, replied, reply, value, value_font, value_content, content_arr, atflag = false, myatStr = "@";
       value = event.value;
+      value_font = value.content.shift();
+      value_content = value.content;
+      content_arr = [];//这货不包含at自己字符串/表情的部分
+
+      if (msg_type === MsgType.Group || msg_type === MsgType.Discuss){
+        if (this.self_info.nick){
+          myatStr = "@" + this.self_info.nick;
+          var minusSpace = 0;
+          for (var index in value_content){
+            if (!(value_content[index] instanceof Array)){
+              if (value_content[index] == myatStr && (typeof value_content[Number(index) + 1] != "undefined") && value_content[Number(index) + 1] == "" ){
+                atflag = true;
+                minusSpace = 2;
+              }else{
+                if (minusSpace == 2){
+                  minusSpace = minusSpace - 1;
+                }else if (minusSpace == 1){
+                  content_arr.push(value_content[index]);
+                  minusSpace = 0;
+                }else{
+                  content_arr.push(value_content[index]);
+                }
+              }
+            }
+          }
+          if (!atflag) {
+            //TODO:做用户会话的记录
+          }
+        }
+      }else{
+        for (var index in value_content){
+          if (!(value_content[index] instanceof Array)){
+            content_arr.push(value_content[index]);
+          }
+        }
+      }
+
       msg = {
-        content: value.content.slice(-1).pop(), //.trim(),
+        //content: value.content.slice(-1).pop(), //.trim(),
+        content: content_arr.join(""), //.trim(),
         time: new Date(value.time * 1000),
         from_uin: value.from_uin,
         type: msg_type,
-        uid: value.msg_id
+        uid: value.msg_id,
+        is_at_me: atflag,
+        ori_content: atflag ? value_content : null
       };
       if (msg_type === MsgType.Group) {
         msg.from_gid = msg.from_uin;
@@ -578,6 +707,7 @@
           msg.from_user = {};
         }
         try {
+          //log.debug(JSON.stringify(msg.from_user));
           log.debug("[群组消息]", "[" + msg.from_group.name + "] " + msg.from_user.nick + ":" + msg.content + " " + msg.time);
         } catch (undefined) {}
       } else if (msg_type === MsgType.Discuss) {
